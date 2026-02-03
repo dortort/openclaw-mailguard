@@ -254,7 +254,7 @@ export class LobsterAdapter {
   /**
    * Get pending approvals for a session
    */
-  async getPendingApprovals(sessionId: string): Promise<LobsterApprovalStep[]> {
+  getPendingApprovals(sessionId: string): LobsterApprovalStep[] {
     const pending: LobsterApprovalStep[] = [];
 
     for (const workflow of this.activeWorkflows.values()) {
