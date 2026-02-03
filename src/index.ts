@@ -84,7 +84,7 @@ export function activate(context: OpenClawPluginContext): Promise<MailGuardPlugi
     description: policyCheckTool.description,
     inputSchema: policyCheckTool.inputSchema,
     handler: (input: unknown, toolContext: ToolContext) => {
-      return plugin.handlePolicyCheck(input as { action: string; parameters?: Record<string, unknown> }, toolContext);
+      return Promise.resolve(plugin.handlePolicyCheck(input as { action: string; parameters?: Record<string, unknown> }, toolContext));
     },
   });
 
@@ -119,6 +119,7 @@ export function activate(context: OpenClawPluginContext): Promise<MailGuardPlugi
     intervalMs: 300000, // 5 minutes
     handler: () => {
       plugin.performCleanup();
+      return Promise.resolve();
     },
   });
 
