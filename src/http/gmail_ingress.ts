@@ -3,6 +3,8 @@
  * Receives Gmail webhook payloads, sanitizes content, and forwards to agent
  */
 
+import { timingSafeEqual as cryptoTimingSafeEqual, randomUUID } from 'crypto';
+
 import type {
   HttpRequest,
   HttpResponse,
@@ -208,7 +210,7 @@ export class GmailIngressHandler {
       }
 
       // Initialize tool firewall session
-      const sessionId = `gmail-${envelope.headers.messageId}-${Date.now()}`;
+      const sessionId = `gmail-${randomUUID()}`;
       this.toolFirewall.initializeSession(sessionId, envelope.provenance, envelope.riskScore);
 
       // Return sanitized envelope for agent processing
@@ -461,18 +463,23 @@ function generateRequestId(): string {
 }
 
 /**
- * Timing-safe string comparison
+ * Timing-safe string comparison that prevents length leakage
  */
 function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) {
+  // Convert strings to buffers
+  const aBuffer = Buffer.from(a);
+  const bBuffer = Buffer.from(b);
+
+  // Handle different lengths without leaking timing information
+  // by comparing against a buffer of the expected length
+  if (aBuffer.length !== bBuffer.length) {
+    // Still perform a comparison to maintain constant time
+    // Compare aBuffer against itself to prevent timing leakage
+    cryptoTimingSafeEqual(aBuffer, aBuffer);
     return false;
   }
 
-  let result = 0;
-  for (let i = 0; i < a.length; i++) {
-    result |= (a.charCodeAt(i) ?? 0) ^ (b.charCodeAt(i) ?? 0);
-  }
-  return result === 0;
+  return cryptoTimingSafeEqual(aBuffer, bBuffer);
 }
 
 // ============================================================================

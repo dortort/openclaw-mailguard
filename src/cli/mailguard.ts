@@ -213,7 +213,7 @@ function createQuarantineReleaseCommand(storage: PluginStorage, logger: Logger):
       const data = await storage.get<{ envelope: SanitizedEnvelope; quarantinedAt: string }>(key);
 
       if (!data) {
-        console.error(`\n❌ Message not found: ${id}\n`);
+        console.log(`\n❌ Message not found: ${id}\n`);
         return;
       }
 
@@ -268,7 +268,7 @@ function createQuarantineDeleteCommand(storage: PluginStorage, logger: Logger): 
       const data = await storage.get<{ envelope: SanitizedEnvelope }>(key);
 
       if (!data) {
-        console.error(`\n❌ Message not found: ${id}\n`);
+        console.log(`\n❌ Message not found: ${id}\n`);
         return;
       }
 
