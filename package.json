@@ -1,0 +1,70 @@
+{
+  "name": "@dortort/mailguard",
+  "version": "1.0.0",
+  "description": "OpenClaw plugin for email prompt-injection mitigation - hardens Gmail-triggered automation with sanitization, tool gating, and approval workflows",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "openclaw.plugin.json"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "email-security",
+    "prompt-injection",
+    "gmail",
+    "mailguard"
+  ],
+  "author": "dortort",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dortort/openclaw-mailguard.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dortort/openclaw-mailguard/issues"
+  },
+  "homepage": "https://github.com/dortort/openclaw-mailguard#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2.0.0"
+  },
+  "dependencies": {
+    "html-to-text": "^9.0.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.57.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.3.0"
+  },
+  "openclaw": {
+    "extensions": [
+      "."
+    ]
+  }
+}
