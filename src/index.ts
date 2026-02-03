@@ -11,16 +11,14 @@ import type {
   SanitizedEnvelope,
   MailGuardReport,
   ToolContext,
-  HttpRequest,
-  HttpResponse,
 } from './types.js';
 
 import { MailGuardConfigSchema } from './types.js';
 import { createGmailIngressHandler } from './http/gmail_ingress.js';
-import { ToolFirewall, policyCheckTool, SAFE_TOOLS, HARD_DENIED_TOOLS } from './policy/tool_firewall.js';
+import { ToolFirewall, policyCheckTool } from './policy/tool_firewall.js';
 import { createLobsterAdapter } from './workflows/lobster_adapter.js';
 import { createCliCommands } from './cli/mailguard.js';
-import { assessRisk, generateRiskSummary } from './risk/heuristics.js';
+import { generateRiskSummary } from './risk/heuristics.js';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
@@ -42,7 +40,7 @@ export const PLUGIN_DESCRIPTION = 'Email prompt-injection mitigation for Gmail-t
  * Initialize the MailGuard plugin
  * This is the main entry point called by OpenClaw when loading the plugin
  */
-export async function activate(context: OpenClawPluginContext): Promise<MailGuardPlugin> {
+export function activate(context: OpenClawPluginContext): Promise<MailGuardPlugin> {
   const { config: rawConfig, logger, storage, gateway } = context;
 
   // Validate configuration
@@ -109,7 +107,7 @@ export async function activate(context: OpenClawPluginContext): Promise<MailGuar
       },
       required: ['sessionId'],
     },
-    handler: async (input: unknown, toolContext: ToolContext) => {
+    handler: async (input: unknown, _toolContext: ToolContext) => {
       const { sessionId, includeApprovals } = input as { sessionId: string; includeApprovals?: boolean };
       return plugin.generateReport(sessionId, includeApprovals ?? true);
     },
@@ -147,15 +145,15 @@ export async function activate(context: OpenClawPluginContext): Promise<MailGuar
     registeredCommands: cliCommands.map(c => c.name),
   });
 
-  return plugin;
+  return Promise.resolve(plugin);
 }
 
 /**
  * Deactivate the plugin (cleanup)
  */
-export async function deactivate(plugin: MailGuardPlugin): Promise<void> {
+export function deactivate(plugin: MailGuardPlugin): void {
   plugin.logger.info('Deactivating MailGuard plugin');
-  await plugin.performCleanup();
+  plugin.performCleanup();
 }
 
 // ============================================================================
@@ -187,16 +185,16 @@ export class MailGuardPlugin {
   /**
    * Handle policy check requests
    */
-  async handlePolicyCheck(
+  handlePolicyCheck(
     input: { action: string; parameters?: Record<string, unknown> },
     context: ToolContext
-  ): Promise<{
+  ): {
     allowed: boolean;
     reason: string;
     requiresApproval: boolean;
     approvalType?: string;
     alternatives?: string[];
-  }> {
+  } {
     const decision = this.toolFirewall.checkToolAccess({
       source: context.provenance?.source ?? 'direct',
       riskScore: context.riskScore ?? 0,
@@ -289,7 +287,7 @@ export class MailGuardPlugin {
   /**
    * Perform cleanup tasks
    */
-  async performCleanup(): Promise<void> {
+  performCleanup(): void {
     this.toolFirewall.cleanupExpiredSessions();
 
     // Cleanup old session envelopes

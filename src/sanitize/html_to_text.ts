@@ -88,16 +88,6 @@ const HTML_TAG = /<[^>]+>/g;
 // URL extraction patterns
 const URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/gi;
 const HREF_PATTERN = /href\s*=\s*["']([^"']+)["']/gi;
-const MAILTO_PATTERN = /mailto:([^\s<>"']+)/gi;
-
-// Quote detection patterns
-const QUOTE_PREFIXES = [
-  /^>\s*/gm,
-  /^On .+ wrote:$/gm,
-  /^-{3,}\s*Original Message\s*-{3,}$/gim,
-  /^From:\s+.+$/gm,
-  /^Sent:\s+.+$/gm,
-];
 
 // Suspicious URL patterns
 const SUSPICIOUS_URL_PATTERNS = [
@@ -322,7 +312,6 @@ export function sanitizeEmailContent(
   const allLinks = mergeLinks(linksFromHtml, linksFromText);
 
   // Truncate if necessary
-  let truncated = false;
   if (text.length > maxLength) {
     text = text.substring(0, maxLength);
     // Try to end at a word boundary
@@ -331,7 +320,6 @@ export function sanitizeEmailContent(
       text = text.substring(0, lastSpace);
     }
     text += '\n[Content truncated for safety]';
-    truncated = true;
   }
 
   return {
@@ -423,12 +411,12 @@ function decodeHtmlEntities(text: string): string {
   }
 
   // Decode numeric entities
-  result = result.replace(/&#(\d+);/g, (_, code) => {
+  result = result.replace(/&#(\d+);/g, (_, code: string) => {
     const num = parseInt(code, 10);
     return num > 0 && num < 65536 ? String.fromCharCode(num) : '';
   });
 
-  result = result.replace(/&#x([0-9a-f]+);/gi, (_, code) => {
+  result = result.replace(/&#x([0-9a-f]+);/gi, (_, code: string) => {
     const num = parseInt(code, 16);
     return num > 0 && num < 65536 ? String.fromCharCode(num) : '';
   });

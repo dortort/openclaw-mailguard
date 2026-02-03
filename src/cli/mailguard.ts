@@ -5,7 +5,6 @@
 
 import type {
   CliCommand,
-  CliOption,
   MailGuardConfig,
   Logger,
   PluginStorage,
@@ -463,7 +462,7 @@ function getEventIcon(eventType: string): string {
 // Test Command
 // ============================================================================
 
-function createTestCommand(config: MailGuardConfig, logger: Logger): CliCommand {
+function createTestCommand(config: MailGuardConfig, _logger: Logger): CliCommand {
   return {
     name: 'mailguard:test',
     description: 'Test MailGuard configuration and connectivity',
@@ -583,7 +582,7 @@ function createPolicyCommand(config: MailGuardConfig): CliCommand {
         type: 'string',
       },
     ],
-    handler: async (args) => {
+    handler: (args): void => {
       const category = args.category as string | undefined;
 
       console.log('\n🔐 MailGuard Tool Policy\n');
@@ -671,7 +670,7 @@ function createApprovalsCommand(lobsterAdapter: LobsterAdapter): CliCommand {
       console.log('─'.repeat(70));
 
       if (sessionFilter) {
-        const pending = await lobsterAdapter.getPendingApprovals(sessionFilter);
+        const pending = lobsterAdapter.getPendingApprovals(sessionFilter);
 
         if (pending.length === 0) {
           console.log(`\n✓ No pending approvals for session ${sessionFilter}.\n`);
