@@ -129,7 +129,9 @@ export type RiskSignalType =
   | 'prompt_leak_attempt'
   | 'role_impersonation'
   | 'data_exfiltration'
-  | 'command_injection';
+  | 'command_injection'
+  | 'script_mixing'
+  | 'bidi_abuse';
 
 export interface RiskScore {
   score: number; // 0-100

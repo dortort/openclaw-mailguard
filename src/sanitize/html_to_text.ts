@@ -3,6 +3,9 @@
  * Converts email content to safe, canonical plaintext
  */
 
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import type {
   ExtractedLink,
   QuotedBlock,
@@ -12,13 +15,68 @@ import type {
   GmailMessagePayload,
   GmailMessagePart,
 } from '../types.js';
+import { analyzeScriptMixing, type ScriptAnalysis } from './script_analyzer.js';
+
+// ============================================================================
+// Confusables Database
+// ============================================================================
+
+interface ConfusablesData {
+  confusables: Record<string, Record<string, string>>;
+}
+
+// Load confusables database at module initialization
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const confusablesPath = join(__dirname, '..', 'data', 'confusables.json');
+
+function loadConfusables(): Map<string, string> {
+  const map = new Map<string, string>();
+  try {
+    const data = JSON.parse(readFileSync(confusablesPath, 'utf-8')) as ConfusablesData;
+    for (const category of Object.values(data.confusables)) {
+      for (const [confusable, ascii] of Object.entries(category)) {
+        // Skip metadata fields starting with underscore
+        if (!confusable.startsWith('_') && typeof ascii === 'string') {
+          map.set(confusable, ascii);
+        }
+      }
+    }
+  } catch {
+    // Fall back to minimal hardcoded set if file not found
+    const fallback: Record<string, string> = {
+      'а': 'a', 'е': 'e', 'о': 'o', 'р': 'p', 'с': 'c',
+      'у': 'y', 'х': 'x', 'ѕ': 's', 'і': 'i', 'ј': 'j',
+    };
+    for (const [k, v] of Object.entries(fallback)) {
+      map.set(k, v);
+    }
+  }
+  return map;
+}
+
+// Initialize confusables map
+const CONFUSABLES_MAP = loadConfusables();
 
 // ============================================================================
 // Constants
 // ============================================================================
 
 const ZERO_WIDTH_CHARS = /[\u200B-\u200D\uFEFF\u2060\u180E]/g;
-const HIDDEN_UNICODE = /[\u2028\u2029\u202A-\u202E\u2066-\u2069]/g;
+// BiDi override characters - kept separate for semantic analysis
+const BIDI_OVERRIDE_CHARS = /[\u202A-\u202E\u2066-\u2069]/g;
+const HIDDEN_UNICODE = /[\u2028\u2029]/g; // Line/paragraph separators only
+
+// RTL script ranges for direction detection
+const RTL_SCRIPT_RANGES: Array<[number, number]> = [
+  [0x0590, 0x05FF], // Hebrew
+  [0x0600, 0x06FF], // Arabic
+  [0x0700, 0x074F], // Syriac
+  [0x0750, 0x077F], // Arabic Supplement
+  [0x08A0, 0x08FF], // Arabic Extended-A
+  [0xFB50, 0xFDFF], // Arabic Presentation Forms-A
+  [0xFE70, 0xFEFF], // Arabic Presentation Forms-B
+];
 const EXCESSIVE_WHITESPACE = /[\t ]{3,}/g;
 const MULTIPLE_NEWLINES = /\n{4,}/g;
 const HTML_COMMENT = /<!--[\s\S]*?-->/g;
@@ -71,6 +129,17 @@ const SUSPICIOUS_URL_PATTERNS = [
 // Main Sanitization Functions
 // ============================================================================
 
+export interface BiDiAnalysis {
+  /** Primary text direction detected */
+  primaryDirection: 'ltr' | 'rtl' | 'mixed';
+  /** Number of BiDi override characters found */
+  overrideCount: number;
+  /** Whether BiDi overrides contradict the primary direction (suspicious) */
+  suspiciousOverrides: boolean;
+  /** Locations of suspicious overrides */
+  suspiciousLocations: number[];
+}
+
 export interface SanitizationResult {
   bodyText: string;
   quotedBlocks: QuotedBlock[];
@@ -79,6 +148,108 @@ export interface SanitizationResult {
   encodingNormalized: boolean;
   originalLength: number;
   sanitizedLength: number;
+  /** Script mixing analysis for homoglyph detection */
+  scriptAnalysis?: ScriptAnalysis;
+  /** BiDi/RTL analysis for direction override detection */
+  bidiAnalysis?: BiDiAnalysis;
+}
+
+/**
+ * Analyze BiDi characters for semantic validation
+ * Detects if BiDi overrides contradict the primary text direction
+ */
+function analyzeBiDi(text: string): BiDiAnalysis {
+  // Count RTL vs LTR characters to determine primary direction
+  let rtlCount = 0;
+  let ltrCount = 0;
+
+  for (let i = 0; i < text.length; i++) {
+    const codePoint = text.codePointAt(i);
+    if (codePoint === undefined) continue;
+
+    // Check if RTL
+    for (const [start, end] of RTL_SCRIPT_RANGES) {
+      if (codePoint >= start && codePoint <= end) {
+        rtlCount++;
+        break;
+      }
+    }
+
+    // Check if Latin/basic LTR (excluding common punctuation)
+    if (
+      (codePoint >= 0x0041 && codePoint <= 0x005A) || // A-Z
+      (codePoint >= 0x0061 && codePoint <= 0x007A) || // a-z
+      (codePoint >= 0x00C0 && codePoint <= 0x024F)    // Latin Extended
+    ) {
+      ltrCount++;
+    }
+
+    // Handle surrogate pairs
+    if (codePoint > 0xFFFF) {
+      i++;
+    }
+  }
+
+  // Determine primary direction
+  let primaryDirection: 'ltr' | 'rtl' | 'mixed';
+  const total = rtlCount + ltrCount;
+  if (total === 0) {
+    primaryDirection = 'ltr'; // Default to LTR
+  } else if (rtlCount > ltrCount * 3) {
+    primaryDirection = 'rtl';
+  } else if (ltrCount > rtlCount * 3) {
+    primaryDirection = 'ltr';
+  } else {
+    primaryDirection = 'mixed';
+  }
+
+  // Find BiDi override characters
+  const overrideMatches: number[] = [];
+  const suspiciousLocations: number[] = [];
+  let match: RegExpExecArray | null;
+  const overridePattern = /[\u202A-\u202E\u2066-\u2069]/g;
+
+  while ((match = overridePattern.exec(text)) !== null) {
+    overrideMatches.push(match.index);
+
+    const char = match[0];
+    const codePoint = char.codePointAt(0);
+
+    // LRE, LRO, LRI force LTR - suspicious in RTL document
+    // RLE, RLO, RLI force RTL - suspicious in LTR document
+    const isLtrOverride = codePoint === 0x202A || codePoint === 0x202D || codePoint === 0x2066;
+    const isRtlOverride = codePoint === 0x202B || codePoint === 0x202E || codePoint === 0x2067;
+
+    if (primaryDirection === 'rtl' && isLtrOverride) {
+      suspiciousLocations.push(match.index);
+    } else if (primaryDirection === 'ltr' && isRtlOverride) {
+      suspiciousLocations.push(match.index);
+    }
+  }
+
+  // Also flag if there are too many overrides (likely an attack)
+  const suspiciousOverrides = suspiciousLocations.length > 0 || overrideMatches.length > 5;
+
+  return {
+    primaryDirection,
+    overrideCount: overrideMatches.length,
+    suspiciousOverrides,
+    suspiciousLocations,
+  };
+}
+
+/**
+ * Remove or neutralize BiDi override characters based on analysis
+ */
+function sanitizeBiDi(text: string, analysis: BiDiAnalysis): { text: string; removed: boolean } {
+  if (analysis.suspiciousOverrides) {
+    // Remove all BiDi overrides if suspicious
+    const cleaned = text.replace(BIDI_OVERRIDE_CHARS, '');
+    return { text: cleaned, removed: cleaned !== text };
+  }
+
+  // For legitimate RTL text, preserve the overrides
+  return { text, removed: false };
 }
 
 export function sanitizeEmailContent(
@@ -103,16 +274,35 @@ export function sanitizeEmailContent(
     text = plainContent;
   }
 
+  // Perform script mixing analysis BEFORE normalization to detect homoglyphs
+  const scriptAnalysis = analyzeScriptMixing(text);
+
+  // Perform BiDi analysis for semantic validation
+  const bidiAnalysis = analyzeBiDi(text);
+
   // Normalize encoding
   const normalizedResult = normalizeEncoding(text);
   text = normalizedResult.text;
   encodingNormalized = normalizedResult.modified;
 
-  // Remove zero-width and hidden unicode characters
+  // Remove zero-width characters
   const beforeZeroWidth = text;
   text = text.replace(ZERO_WIDTH_CHARS, '');
-  text = text.replace(HIDDEN_UNICODE, '');
   if (text !== beforeZeroWidth) {
+    hiddenContentRemoved = true;
+  }
+
+  // Remove hidden unicode (line/paragraph separators)
+  const beforeHiddenUnicode = text;
+  text = text.replace(HIDDEN_UNICODE, '');
+  if (text !== beforeHiddenUnicode) {
+    hiddenContentRemoved = true;
+  }
+
+  // Sanitize BiDi overrides based on analysis (only remove if suspicious)
+  const bidiResult = sanitizeBiDi(text, bidiAnalysis);
+  text = bidiResult.text;
+  if (bidiResult.removed) {
     hiddenContentRemoved = true;
   }
 
@@ -152,6 +342,8 @@ export function sanitizeEmailContent(
     encodingNormalized,
     originalLength: startLength,
     sanitizedLength: text.length,
+    scriptAnalysis,
+    bidiAnalysis,
   };
 }
 
@@ -218,8 +410,8 @@ function decodeHtmlEntities(text: string): string {
     '&mdash;': '—',
     '&ndash;': '–',
     '&hellip;': '…',
-    '&lsquo;': ''',
-    '&rsquo;': ''',
+    '&lsquo;': "'",
+    '&rsquo;': "'",
     '&ldquo;': '"',
     '&rdquo;': '"',
     '&bull;': '•',
@@ -257,6 +449,13 @@ function normalizeEncoding(text: string): NormalizeResult {
   let modified = false;
   let result = text;
 
+  // Apply NFKC normalization first - handles fullwidth chars, compatibility characters, composed forms
+  const beforeNfkc = result;
+  result = result.normalize('NFKC');
+  if (result !== beforeNfkc) {
+    modified = true;
+  }
+
   // Detect and decode base64 blocks that look like they might be hidden instructions
   const base64Pattern = /(?:^|\s)([A-Za-z0-9+/]{20,}={0,2})(?:\s|$)/g;
   let match;
@@ -273,30 +472,8 @@ function normalizeEncoding(text: string): NormalizeResult {
     }
   }
 
-  // Normalize common unicode confusables to ASCII
-  const confusables: Record<string, string> = {
-    'а': 'a', // Cyrillic
-    'е': 'e',
-    'о': 'o',
-    'р': 'p',
-    'с': 'c',
-    'у': 'y',
-    'х': 'x',
-    'ѕ': 's',
-    'і': 'i',
-    'ј': 'j',
-    'ԁ': 'd',
-    'ɡ': 'g',
-    'ʜ': 'H',
-    'ɴ': 'N',
-    'ꮪ': 'S',
-    'ꭺ': 'A',
-    '\uff41': 'a', // Fullwidth
-    '\uff42': 'b',
-    '\uff43': 'c',
-  };
-
-  for (const [confusable, ascii] of Object.entries(confusables)) {
+  // Normalize unicode confusables to ASCII using comprehensive database
+  for (const [confusable, ascii] of CONFUSABLES_MAP) {
     if (result.includes(confusable)) {
       result = result.split(confusable).join(ascii);
       modified = true;

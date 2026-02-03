@@ -11,17 +11,20 @@ import type {
   EmailHeaders,
   MailGuardConfig,
 } from '../types.js';
+import { ALL_MULTILINGUAL_PATTERNS } from '../data/multilingual-patterns.js';
 
 // ============================================================================
 // Pattern Definitions
 // ============================================================================
 
-interface PatternDefinition {
+export interface PatternDefinition {
   pattern: RegExp;
   type: RiskSignalType;
   severity: 'low' | 'medium' | 'high' | 'critical';
   description: string;
   weight: number;
+  /** Language code: 'en', 'es', 'zh', 'universal', etc. Defaults to 'en' */
+  language?: string;
 }
 
 // Instruction override patterns - attempts to override system/developer instructions
@@ -34,7 +37,7 @@ const INSTRUCTION_OVERRIDE_PATTERNS: PatternDefinition[] = [
     weight: 30,
   },
   {
-    pattern: /disregard\s+(all\s+)?(previous|prior|above|earlier|your)\s+(instructions?|prompts?|rules?|programming)/i,
+    pattern: /disregard\s+(all\s+)?(your\s+)?(previous|prior|above|earlier)?\s*(instructions?|prompts?|rules?|programming)/i,
     type: 'instruction_override',
     severity: 'critical',
     description: 'Attempt to disregard instructions',
@@ -178,7 +181,7 @@ const TOOL_BAITING_PATTERNS: PatternDefinition[] = [
     weight: 25,
   },
   {
-    pattern: /write\s+(this|the\s+following)?\s*(to|into)\s+(a\s+)?file/i,
+    pattern: /write\s+(this|the\s+following)?\s*\w*\s*(to|into)\s+(a\s+)?file/i,
     type: 'tool_baiting',
     severity: 'high',
     description: 'File write request',
@@ -263,7 +266,7 @@ const DATA_EXFILTRATION_PATTERNS: PatternDefinition[] = [
 // Obfuscation patterns
 const OBFUSCATION_PATTERNS: PatternDefinition[] = [
   {
-    pattern: /[A-Za-z0-9+/]{50,}={0,2}/,
+    pattern: /[A-Za-z0-9+/]{32,}={0,2}/,
     type: 'obfuscation',
     severity: 'medium',
     description: 'Potential base64 encoded content',
@@ -423,15 +426,18 @@ const FINANCIAL_PATTERNS: PatternDefinition[] = [
   },
 ];
 
-// All patterns combined
+// All patterns combined (English + Multilingual)
 const ALL_PATTERNS: PatternDefinition[] = [
-  ...INSTRUCTION_OVERRIDE_PATTERNS,
-  ...TOOL_BAITING_PATTERNS,
-  ...DATA_EXFILTRATION_PATTERNS,
-  ...OBFUSCATION_PATTERNS,
-  ...COMMAND_INJECTION_PATTERNS,
-  ...URGENCY_PATTERNS,
-  ...FINANCIAL_PATTERNS,
+  // English patterns (default language)
+  ...INSTRUCTION_OVERRIDE_PATTERNS.map(p => ({ ...p, language: p.language ?? 'en' })),
+  ...TOOL_BAITING_PATTERNS.map(p => ({ ...p, language: p.language ?? 'en' })),
+  ...DATA_EXFILTRATION_PATTERNS.map(p => ({ ...p, language: p.language ?? 'en' })),
+  ...OBFUSCATION_PATTERNS.map(p => ({ ...p, language: p.language ?? 'universal' })),
+  ...COMMAND_INJECTION_PATTERNS.map(p => ({ ...p, language: p.language ?? 'universal' })),
+  ...URGENCY_PATTERNS.map(p => ({ ...p, language: p.language ?? 'en' })),
+  ...FINANCIAL_PATTERNS.map(p => ({ ...p, language: p.language ?? 'en' })),
+  // Multilingual patterns (Spanish, French, German, Portuguese, Chinese, Japanese, Russian, Arabic, Korean, Italian)
+  ...ALL_MULTILINGUAL_PATTERNS,
 ];
 
 // ============================================================================
