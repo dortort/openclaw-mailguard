@@ -14,6 +14,45 @@ import type {
   SideEffectPlan,
   Logger,
 } from '../types.js';
+import { randomUUID } from 'crypto';
+
+// ============================================================================
+// Rate Limiter
+// ============================================================================
+
+// Rate limiter for approval operations
+class ApprovalRateLimiter {
+  private attempts: Map<string, { count: number; windowStart: number }> = new Map();
+  private readonly maxAttempts = 10;
+  private readonly windowMs = 60000; // 1 minute
+
+  check(sessionId: string): boolean {
+    const now = Date.now();
+    const key = sessionId;
+    const entry = this.attempts.get(key);
+
+    if (!entry || now - entry.windowStart > this.windowMs) {
+      this.attempts.set(key, { count: 1, windowStart: now });
+      return true;
+    }
+
+    if (entry.count >= this.maxAttempts) {
+      return false;
+    }
+
+    entry.count++;
+    return true;
+  }
+
+  cleanup(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.attempts.entries()) {
+      if (now - entry.windowStart > this.windowMs) {
+        this.attempts.delete(key);
+      }
+    }
+  }
+}
 
 // ============================================================================
 // Tool Categories
@@ -143,6 +182,7 @@ export class ToolFirewall {
   private config: MailGuardConfig;
   private logger: Logger;
   private sessionPolicies: Map<string, SessionPolicy> = new Map();
+  private approvalRateLimiter = new ApprovalRateLimiter();
 
   constructor(config: MailGuardConfig, logger: Logger) {
     this.config = config;
@@ -268,8 +308,30 @@ export class ToolFirewall {
       };
     }
 
-    // Default: allow with logging for unknown tools
-    this.logger.info('Tool allowed (not in restricted list)', {
+    // For Gmail-origin sessions, deny unknown tools by default (fail-secure)
+    if (policy.isGmailOrigin) {
+      this.logger.warn('Tool denied (not in allowlist for Gmail-origin)', {
+        sessionId: context.sessionId,
+        tool,
+      });
+
+      policy.toolCallHistory.push({
+        tool,
+        timestamp: new Date(),
+        decision: 'denied',
+        reason: 'not_in_allowlist',
+      });
+
+      return {
+        allowed: false,
+        reason: `Tool "${tool}" is not in the allowlist for email-triggered sessions. Only explicitly approved tools are permitted.`,
+        requiresApproval: true,
+        denialType: 'soft',
+      };
+    }
+
+    // For non-Gmail sessions, allow with logging
+    this.logger.info('Tool allowed (non-Gmail session)', {
       sessionId: context.sessionId,
       tool,
     });
@@ -278,12 +340,12 @@ export class ToolFirewall {
       tool,
       timestamp: new Date(),
       decision: 'allowed',
-      reason: 'not_restricted',
+      reason: 'non_gmail_session',
     });
 
     return {
       allowed: true,
-      reason: 'Tool is not in restricted list',
+      reason: 'Tool allowed for non-email-triggered sessions',
       requiresApproval: false,
     };
   }
@@ -343,6 +405,12 @@ export class ToolFirewall {
   ): boolean {
     const policy = this.sessionPolicies.get(sessionId);
     if (!policy) return false;
+
+    // Rate limiting check
+    if (!this.approvalRateLimiter.check(sessionId)) {
+      this.logger.warn('Approval rate limit exceeded', { sessionId, approvalId });
+      return false;
+    }
 
     const approval = policy.pendingApprovals.find(a => a.id === approvalId);
     if (!approval) return false;
@@ -441,7 +509,7 @@ function normalizeToolName(tool: string): string {
 }
 
 function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+  return randomUUID();
 }
 
 /**

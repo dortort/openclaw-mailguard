@@ -12,6 +12,14 @@ import type {
   MailGuardConfig,
 } from '../types.js';
 import { ALL_MULTILINGUAL_PATTERNS } from '../data/multilingual-patterns.js';
+import { z } from 'zod';
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+// Maximum input length to prevent ReDoS attacks
+const MAX_BODY_LENGTH_FOR_PATTERNS = 100000; // 100KB
 
 // ============================================================================
 // Pattern Definitions
@@ -440,6 +448,12 @@ const ALL_PATTERNS: PatternDefinition[] = [
   ...ALL_MULTILINGUAL_PATTERNS,
 ];
 
+// Pre-compile patterns for performance and safety
+const COMPILED_PATTERNS = ALL_PATTERNS.map(p => ({
+  ...p,
+  compiled: new RegExp(p.pattern.source, p.pattern.flags + (p.pattern.flags.includes('g') ? '' : 'g')),
+}));
+
 // ============================================================================
 // Risk Assessment Functions
 // ============================================================================
@@ -453,21 +467,38 @@ export function assessRisk(
   const signals: RiskSignal[] = [];
   let totalWeight = 0;
 
-  // Scan for patterns
-  for (const patternDef of ALL_PATTERNS) {
-    const matches = bodyText.matchAll(new RegExp(patternDef.pattern, 'gi'));
-    for (const match of matches) {
-      signals.push({
-        type: patternDef.type,
-        severity: patternDef.severity,
-        description: patternDef.description,
-        evidence: match[0].substring(0, 100),
-        location: match.index !== undefined ? {
-          start: match.index,
-          end: match.index + match[0].length,
-        } : undefined,
-      });
-      totalWeight += patternDef.weight;
+  // Truncate input to prevent ReDoS
+  const truncatedText = bodyText.length > MAX_BODY_LENGTH_FOR_PATTERNS
+    ? bodyText.substring(0, MAX_BODY_LENGTH_FOR_PATTERNS)
+    : bodyText;
+
+  // Scan for patterns using pre-compiled regex
+  for (const patternDef of COMPILED_PATTERNS) {
+    try {
+      // Reset lastIndex for global patterns
+      patternDef.compiled.lastIndex = 0;
+      const matches = truncatedText.matchAll(patternDef.compiled);
+      for (const match of matches) {
+        signals.push({
+          type: patternDef.type,
+          severity: patternDef.severity,
+          description: patternDef.description,
+          evidence: match[0].substring(0, 100),
+          location: match.index !== undefined ? {
+            start: match.index,
+            end: match.index + match[0].length,
+          } : undefined,
+        });
+        totalWeight += patternDef.weight;
+
+        // Limit signals per pattern to prevent memory issues
+        if (signals.filter(s => s.description === patternDef.description).length >= 10) {
+          break;
+        }
+      }
+    } catch {
+      // Skip patterns that cause errors (e.g., timeout)
+      continue;
     }
   }
 
@@ -573,6 +604,12 @@ export interface MLClassifierResult {
   labels: string[];
 }
 
+const MLClassifierResultSchema = z.object({
+  score: z.number().min(0).max(100),
+  confidence: z.number().min(0).max(1),
+  labels: z.array(z.string()),
+});
+
 export async function classifyWithML(
   bodyText: string,
   endpoint: string
@@ -592,8 +629,14 @@ export async function classifyWithML(
       return null;
     }
 
-    const result = await response.json() as MLClassifierResult;
-    return result;
+    const rawResult = await response.json();
+    const parseResult = MLClassifierResultSchema.safeParse(rawResult);
+
+    if (!parseResult.success) {
+      return null;
+    }
+
+    return parseResult.data;
   } catch {
     return null;
   }
