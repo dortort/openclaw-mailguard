@@ -163,6 +163,7 @@ export class ToolFirewall {
       riskScore: riskScore?.score ?? 0,
       isGmailOrigin: provenance?.source === 'gmail',
       isAllowlistedSender: provenance?.isAllowlistedDomain ?? false,
+      createdAt: new Date(),
       deniedTools: new Set(this.config.deniedTools),
       approvalRequiredActions: new Set(this.config.approvalRequiredActions),
       pendingApprovals: [],
@@ -387,8 +388,8 @@ export class ToolFirewall {
 
     for (const [sessionId, policy] of this.sessionPolicies.entries()) {
       const lastActivity = policy.toolCallHistory.length > 0
-        ? policy.toolCallHistory[policy.toolCallHistory.length - 1]?.timestamp.getTime() ?? 0
-        : 0;
+        ? policy.toolCallHistory[policy.toolCallHistory.length - 1]?.timestamp.getTime() ?? policy.createdAt.getTime()
+        : policy.createdAt.getTime();
 
       if (now - lastActivity > maxAgeMs) {
         this.sessionPolicies.delete(sessionId);
@@ -417,6 +418,7 @@ interface SessionPolicy {
   riskScore: number;
   isGmailOrigin: boolean;
   isAllowlistedSender: boolean;
+  createdAt: Date;
   deniedTools: Set<string>;
   approvalRequiredActions: Set<string>;
   pendingApprovals: ApprovalRequest[];
