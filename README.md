@@ -2,6 +2,18 @@
 
 [![CI](https://github.com/dortort/openclaw-mailguard/actions/workflows/ci.yml/badge.svg)](https://github.com/dortort/openclaw-mailguard/actions/workflows/ci.yml)
 [![npm version](https://badge.fury.io/js/%40dortort%2Fmailguard.svg)](https://badge.fury.io/js/%40dortort%2Fmailguard)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/typescript-%3E%3D5.4-blue)](https://www.typescriptlang.org/)
+[![OpenClaw](https://img.shields.io/badge/openclaw-%3E%3D2.0.0-purple)](https://github.com/dortort/openclaw)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+
+> **⚠️ Experimental Software**
+>
+> This plugin is currently experimental. While MailGuard implements multiple layers of defense against prompt injection attacks, **no security measure can guarantee complete protection**. Prompt injection is an evolving threat, and sophisticated attacks may bypass detection. Always:
+> - Review automated actions before approval
+> - Monitor audit logs for suspicious activity
+> - Keep the plugin updated for latest pattern definitions
+> - Use this as one layer in a defense-in-depth strategy
 
 **MailGuard** is an OpenClaw plugin that hardens Gmail-triggered automation against prompt injection attacks by enforcing ingress sanitization, provenance-aware tool gating, and approval-gated side effects.
 
