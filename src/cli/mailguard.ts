@@ -582,7 +582,8 @@ function createPolicyCommand(config: MailGuardConfig): CliCommand {
         type: 'string',
       },
     ],
-    handler: (args): void => {
+    // eslint-disable-next-line @typescript-eslint/require-await
+    handler: async (args): Promise<void> => {
       const category = args.category as string | undefined;
 
       console.log('\n🔐 MailGuard Tool Policy\n');
