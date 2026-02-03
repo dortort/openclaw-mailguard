@@ -650,6 +650,7 @@ function createApprovalsCommand(lobsterAdapter: LobsterAdapter): CliCommand {
         type: 'string',
       },
     ],
+    // eslint-disable-next-line @typescript-eslint/require-await
     handler: async (args) => {
       const sessionFilter = args.session as string | undefined;
       const approveId = args.approve as string | undefined;
