@@ -183,6 +183,7 @@ export class ToolFirewall {
   private logger: Logger;
   private sessionPolicies: Map<string, SessionPolicy> = new Map();
   private approvalRateLimiter = new ApprovalRateLimiter();
+  private readonly maxSessions = 10000;
 
   constructor(config: MailGuardConfig, logger: Logger) {
     this.config = config;
@@ -197,6 +198,23 @@ export class ToolFirewall {
     provenance: EmailProvenance | undefined,
     riskScore: RiskScore | undefined
   ): void {
+    // Evict oldest session if at capacity
+    if (this.sessionPolicies.size >= this.maxSessions) {
+      // Find and delete oldest session by createdAt
+      let oldestId: string | undefined;
+      let oldestTime = Infinity;
+      for (const [id, policy] of this.sessionPolicies.entries()) {
+        if (policy.createdAt.getTime() < oldestTime) {
+          oldestTime = policy.createdAt.getTime();
+          oldestId = id;
+        }
+      }
+      if (oldestId) {
+        this.sessionPolicies.delete(oldestId);
+        this.logger.debug('Evicted oldest session due to capacity', { sessionId: oldestId });
+      }
+    }
+
     const policy: SessionPolicy = {
       sessionId,
       source: provenance?.source ?? 'direct',

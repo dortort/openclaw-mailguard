@@ -21,13 +21,17 @@ import { ToolFirewall, policyCheckTool, SAFE_TOOLS, HARD_DENIED_TOOLS } from './
 import { createLobsterAdapter } from './workflows/lobster_adapter.js';
 import { createCliCommands } from './cli/mailguard.js';
 import { assessRisk, generateRiskSummary } from './risk/heuristics.js';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const packageJson = require('../package.json') as { version: string };
 
 // ============================================================================
 // Plugin Metadata
 // ============================================================================
 
 export const PLUGIN_NAME = 'mailguard';
-export const PLUGIN_VERSION = '1.0.0';
+export const PLUGIN_VERSION = packageJson.version;
 export const PLUGIN_DESCRIPTION = 'Email prompt-injection mitigation for Gmail-triggered automation';
 
 // ============================================================================
