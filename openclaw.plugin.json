@@ -1,0 +1,184 @@
+{
+  "name": "mailguard",
+  "displayName": "MailGuard",
+  "version": "1.0.0",
+  "description": "Email prompt-injection mitigation plugin - enforces sanitization, provenance-aware tool gating, and approval-gated side effects for Gmail-triggered automation",
+  "author": "dortort",
+  "entrypoint": "dist/index.js",
+  "capabilities": {
+    "httpHandlers": true,
+    "tools": true,
+    "backgroundServices": true,
+    "cliCommands": true
+  },
+  "configSchema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "endpoint": {
+        "type": "string",
+        "default": "/mailguard/gmail",
+        "description": "HTTP endpoint path for Gmail webhook ingress"
+      },
+      "webhookSecret": {
+        "type": "string",
+        "description": "Shared secret for webhook authentication (must match OpenClaw hook token)",
+        "minLength": 16
+      },
+      "maxPayloadSize": {
+        "type": "integer",
+        "default": 1048576,
+        "minimum": 1024,
+        "maximum": 10485760,
+        "description": "Maximum allowed payload size in bytes (default: 1MB)"
+      },
+      "maxBodyLength": {
+        "type": "integer",
+        "default": 50000,
+        "minimum": 1000,
+        "maximum": 500000,
+        "description": "Maximum email body length after sanitization (default: 50KB)"
+      },
+      "riskThreshold": {
+        "type": "integer",
+        "default": 70,
+        "minimum": 0,
+        "maximum": 100,
+        "description": "Risk score threshold for automatic quarantine (0-100)"
+      },
+      "enableMLClassifier": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable optional ML-based risk classifier (requires model endpoint)"
+      },
+      "mlClassifierEndpoint": {
+        "type": "string",
+        "format": "uri",
+        "description": "Endpoint for ML risk classification service"
+      },
+      "allowedSenderDomains": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": [],
+        "description": "Domains treated as trusted sources (reduces risk score)"
+      },
+      "blockedSenderDomains": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": [],
+        "description": "Domains that are always blocked"
+      },
+      "allowedRecipientDomains": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": [],
+        "description": "Allowed recipient domains for outbound actions"
+      },
+      "deniedTools": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": [
+          "browser_control",
+          "browser_navigate",
+          "exec",
+          "shell",
+          "filesystem_write",
+          "filesystem_edit",
+          "filesystem_delete",
+          "web_fetch_unrestricted",
+          "patch",
+          "code_execute"
+        ],
+        "description": "Tools denied for Gmail-origin sessions"
+      },
+      "approvalRequiredActions": {
+        "type": "array",
+        "items": { "type": "string" },
+        "default": [
+          "send_email",
+          "forward_email",
+          "delete_email",
+          "apply_label",
+          "create_draft",
+          "move_email"
+        ],
+        "description": "Actions that require explicit operator approval"
+      },
+      "quarantineEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Enable quarantine for high-risk emails"
+      },
+      "rateLimitPerSender": {
+        "type": "integer",
+        "default": 10,
+        "minimum": 1,
+        "maximum": 1000,
+        "description": "Maximum requests per sender per hour"
+      },
+      "logLevel": {
+        "type": "string",
+        "enum": ["debug", "info", "warn", "error"],
+        "default": "info",
+        "description": "Logging verbosity level"
+      },
+      "auditLogPath": {
+        "type": "string",
+        "description": "Path for audit log file (optional, defaults to OpenClaw log directory)"
+      },
+      "allowUnsafeExternalContent": {
+        "type": "boolean",
+        "default": false,
+        "description": "DANGER: Allow unsanitized content for trusted internal sources only"
+      },
+      "lobsterIntegration": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Use Lobster workflows for approval gating"
+          },
+          "workflowTemplate": {
+            "type": "string",
+            "default": "mailguard-approval",
+            "description": "Lobster workflow template name for approvals"
+          },
+          "timeout": {
+            "type": "integer",
+            "default": 3600,
+            "minimum": 60,
+            "maximum": 86400,
+            "description": "Approval timeout in seconds"
+          }
+        }
+      }
+    },
+    "required": ["webhookSecret"],
+    "additionalProperties": false
+  },
+  "uiHints": {
+    "webhookSecret": {
+      "sensitive": true,
+      "inputType": "password",
+      "label": "Webhook Secret"
+    },
+    "mlClassifierEndpoint": {
+      "sensitive": true,
+      "inputType": "url",
+      "label": "ML Classifier Endpoint"
+    },
+    "allowUnsafeExternalContent": {
+      "warning": "Enabling this option bypasses security sanitization. Only enable for fully trusted internal email sources.",
+      "label": "Allow Unsafe Content (DANGER)"
+    },
+    "deniedTools": {
+      "label": "Denied Tools for Gmail Sessions",
+      "multiSelect": true
+    },
+    "riskThreshold": {
+      "label": "Risk Score Threshold",
+      "inputType": "slider"
+    }
+  }
+}
