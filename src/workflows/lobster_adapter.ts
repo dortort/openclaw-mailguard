@@ -3,6 +3,7 @@
  * Integrates with OpenClaw's Lobster deterministic workflow system for approval gating
  */
 
+import { randomUUID } from 'crypto';
 import type {
   MailGuardConfig,
   ApprovalRequest,
@@ -85,7 +86,7 @@ export class LobsterAdapter {
       signals: RiskSignal[];
     }
   ): Promise<LobsterWorkflow> {
-    const workflowId = `wf-${sessionId}-${Date.now()}`;
+    const workflowId = `wf-${randomUUID()}`;
 
     // Build approval steps for each action requiring approval
     const steps: LobsterStep[] = [];

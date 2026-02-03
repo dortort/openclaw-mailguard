@@ -464,22 +464,36 @@ function generateRequestId(): string {
 
 /**
  * Timing-safe string comparison that prevents length leakage
+ * Encodes length into the buffer to ensure constant-time comparison
+ * includes length validation without branching
  */
 function timingSafeEqual(a: string, b: string): boolean {
   // Convert strings to buffers
   const aBuffer = Buffer.from(a);
   const bBuffer = Buffer.from(b);
 
-  // Handle different lengths without leaking timing information
-  // by comparing against a buffer of the expected length
-  if (aBuffer.length !== bBuffer.length) {
-    // Still perform a comparison to maintain constant time
-    // Compare aBuffer against itself to prevent timing leakage
-    cryptoTimingSafeEqual(aBuffer, aBuffer);
-    return false;
-  }
+  // Use the maximum length to prevent length leakage
+  const maxLen = Math.max(aBuffer.length, bBuffer.length);
 
-  return cryptoTimingSafeEqual(aBuffer, bBuffer);
+  // Create padded buffers of equal length
+  const aPadded = Buffer.alloc(maxLen);
+  const bPadded = Buffer.alloc(maxLen);
+
+  aBuffer.copy(aPadded);
+  bBuffer.copy(bPadded);
+
+  // Encode length into buffer as 4-byte big-endian integer
+  // This ensures the crypto comparison includes length validation
+  const aLenBuf = Buffer.alloc(4);
+  const bLenBuf = Buffer.alloc(4);
+  aLenBuf.writeUInt32BE(aBuffer.length, 0);
+  bLenBuf.writeUInt32BE(bBuffer.length, 0);
+
+  const aWithLen = Buffer.concat([aPadded, aLenBuf]);
+  const bWithLen = Buffer.concat([bPadded, bLenBuf]);
+
+  // Single constant-time comparison that validates both content and length
+  return cryptoTimingSafeEqual(aWithLen, bWithLen);
 }
 
 // ============================================================================

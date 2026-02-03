@@ -12,6 +12,7 @@ import type {
   MailGuardConfig,
 } from '../types.js';
 import { ALL_MULTILINGUAL_PATTERNS } from '../data/multilingual-patterns.js';
+import { detectLanguage, isLikelyNonEnglish } from '../sanitize/language_detector.js';
 import { z } from 'zod';
 
 // ============================================================================
@@ -472,8 +473,19 @@ export function assessRisk(
     ? bodyText.substring(0, MAX_BODY_LENGTH_FOR_PATTERNS)
     : bodyText;
 
+  // Detect language to optimize pattern matching
+  const langResult = isLikelyNonEnglish(truncatedText) ? detectLanguage(truncatedText) : { primary: 'en', confidence: 0.9, scripts: ['latin'] };
+  const detectedLanguage = langResult.primary;
+
+  // Sort patterns to prioritize detected language and universal patterns
+  const sortedPatterns = [...COMPILED_PATTERNS].sort((a, b) => {
+    const aMatch = a.language === detectedLanguage || a.language === 'universal' ? 0 : 1;
+    const bMatch = b.language === detectedLanguage || b.language === 'universal' ? 0 : 1;
+    return aMatch - bMatch;
+  });
+
   // Scan for patterns using pre-compiled regex
-  for (const patternDef of COMPILED_PATTERNS) {
+  for (const patternDef of sortedPatterns) {
     try {
       // Reset lastIndex for global patterns
       patternDef.compiled.lastIndex = 0;
@@ -615,6 +627,39 @@ export async function classifyWithML(
   endpoint: string
 ): Promise<MLClassifierResult | null> {
   try {
+    // SSRF protection - validate endpoint is not internal/private
+    const url = new URL(endpoint);
+    const hostname = url.hostname.toLowerCase();
+
+    // Block localhost and loopback
+    if (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '[::1]' ||
+      hostname === '::1'
+    ) {
+      return null;
+    }
+
+    // Block private IP ranges
+    const ipMatch = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (ipMatch) {
+      const [, a, b] = ipMatch.map(Number);
+      // 10.0.0.0/8
+      if (a === 10) return null;
+      // 172.16.0.0/12
+      if (a === 172 && b !== undefined && b >= 16 && b <= 31) return null;
+      // 192.168.0.0/16
+      if (a === 192 && b === 168) return null;
+      // 169.254.0.0/16 (link-local)
+      if (a === 169 && b === 254) return null;
+    }
+
+    // Block .local domains
+    if (hostname.endsWith('.local') || hostname.endsWith('.internal')) {
+      return null;
+    }
+
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {

@@ -349,6 +349,23 @@ export const JAPANESE_PATTERNS: PatternDefinition[] = [
     weight: 25,
     language: 'ja',
   },
+  // Tool baiting
+  {
+    pattern: /(この)?コマンドを実行/,
+    type: 'tool_baiting',
+    severity: 'high',
+    description: 'Japanese: Command execution request',
+    weight: 25,
+    language: 'ja',
+  },
+  {
+    pattern: /実行(して|する)[ください]?[:：]\s*(rm|del|format)/i,
+    type: 'tool_baiting',
+    severity: 'critical',
+    description: 'Japanese: Destructive command request',
+    weight: 40,
+    language: 'ja',
+  },
   // Role impersonation
   {
     pattern: /(今から)?あなたは.{0,5}(私の|一人の)/,
@@ -413,6 +430,22 @@ export const RUSSIAN_PATTERNS: PatternDefinition[] = [
     severity: 'high',
     description: 'Russian: Attempt to set new instructions',
     weight: 25,
+    language: 'ru',
+  },
+  {
+    pattern: /(теперь\s+)?в\s+режиме\s+DAN/i,
+    type: 'instruction_override',
+    severity: 'critical',
+    description: 'Russian: DAN mode jailbreak attempt',
+    weight: 45,
+    language: 'ru',
+  },
+  {
+    pattern: /можешь\s+делать\s+всё\s+без\s+ограничений/i,
+    type: 'instruction_override',
+    severity: 'critical',
+    description: 'Russian: Attempt to remove restrictions',
+    weight: 40,
     language: 'ru',
   },
   // Role impersonation
@@ -537,6 +570,15 @@ export const KOREAN_PATTERNS: PatternDefinition[] = [
     severity: 'high',
     description: 'Korean: Attempt to set new instructions',
     weight: 25,
+    language: 'ko',
+  },
+  // Data exfiltration
+  {
+    pattern: /(API\s*키|비밀번호|암호|토큰|인증).{0,10}(보내|전송|알려)/,
+    type: 'data_exfiltration',
+    severity: 'critical',
+    description: 'Korean: Credential exfiltration attempt',
+    weight: 45,
     language: 'ko',
   },
   // Role impersonation

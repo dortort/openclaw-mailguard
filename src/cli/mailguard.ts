@@ -17,6 +17,48 @@ import { ToolFirewall } from '../policy/tool_firewall.js';
 import { LobsterAdapter } from '../workflows/lobster_adapter.js';
 
 // ============================================================================
+// CLI Output Helper
+// ============================================================================
+
+/**
+ * CLI output helper that combines console display with structured logging
+ */
+class CLIOutput {
+  constructor(private logger: Logger) {}
+
+  /** Print to console and log at info level */
+  info(message: string, data?: Record<string, unknown>): void {
+    console.log(message);
+    if (data) {
+      this.logger.info(message.replace(/[^\w\s]/g, '').trim(), data);
+    }
+  }
+
+  /** Print to console and log at warn level */
+  warn(message: string, data?: Record<string, unknown>): void {
+    console.log(message);
+    this.logger.warn(message.replace(/[^\w\s]/g, '').trim(), data ?? {});
+  }
+
+  /** Print to console and log at error level */
+  error(message: string, data?: Record<string, unknown>): void {
+    console.log(message);
+    this.logger.error(message.replace(/[^\w\s]/g, '').trim(), data ?? {});
+  }
+
+  /** Print to console only (no logging) - for formatting/decorative output */
+  print(message: string): void {
+    console.log(message);
+  }
+}
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const VALID_ID_PATTERN = /^[a-zA-Z0-9\-_]+$/;
+
+// ============================================================================
 // CLI Command Definitions
 // ============================================================================
 
@@ -27,11 +69,13 @@ export function createCliCommands(
   toolFirewall: ToolFirewall,
   lobsterAdapter: LobsterAdapter
 ): CliCommand[] {
+  const output = new CLIOutput(logger);
+
   return [
     createStatusCommand(config, storage),
     createQuarantineListCommand(storage),
-    createQuarantineReleaseCommand(storage, logger),
-    createQuarantineDeleteCommand(storage, logger),
+    createQuarantineReleaseCommand(storage, output),
+    createQuarantineDeleteCommand(storage, output),
     createAuditCommand(storage),
     createTestCommand(config, logger),
     createPolicyCommand(config),
@@ -186,7 +230,7 @@ function createQuarantineListCommand(storage: PluginStorage): CliCommand {
   };
 }
 
-function createQuarantineReleaseCommand(storage: PluginStorage, logger: Logger): CliCommand {
+function createQuarantineReleaseCommand(storage: PluginStorage, output: CLIOutput): CliCommand {
   return {
     name: 'mailguard:quarantine:release',
     description: 'Release a message from quarantine for processing',
@@ -209,20 +253,25 @@ function createQuarantineReleaseCommand(storage: PluginStorage, logger: Logger):
       const id = args.id as string;
       const force = args.force as boolean;
 
+      if (!VALID_ID_PATTERN.test(id)) {
+        output.error('\n❌ Invalid message ID format\n', { messageId: id, reason: 'invalid_format' });
+        return;
+      }
+
       const key = `quarantine:${id}`;
       const data = await storage.get<{ envelope: SanitizedEnvelope; quarantinedAt: string }>(key);
 
       if (!data) {
-        console.log(`\n❌ Message not found: ${id}\n`);
+        output.error(`\n❌ Message not found: ${id}\n`, { messageId: id, reason: 'not_found' });
         return;
       }
 
       if (!force) {
-        console.log(`\n⚠️  Warning: This message has a risk score of ${data.envelope.riskScore.score}/100`);
-        console.log(`From: ${data.envelope.headers.from}`);
-        console.log(`Subject: ${data.envelope.headers.subject}`);
-        console.log(`\nReleasing this message will allow it to be processed.`);
-        console.log(`Use --force to confirm release.\n`);
+        output.print(`\n⚠️  Warning: This message has a risk score of ${data.envelope.riskScore.score}/100`);
+        output.print(`From: ${data.envelope.headers.from}`);
+        output.print(`Subject: ${data.envelope.headers.subject}`);
+        output.print(`\nReleasing this message will allow it to be processed.`);
+        output.print(`Use --force to confirm release.\n`);
         return;
       }
 
@@ -235,13 +284,17 @@ function createQuarantineReleaseCommand(storage: PluginStorage, logger: Logger):
       // Remove from quarantine
       await storage.delete(key);
 
-      logger.info('Message released from quarantine', { messageId: id });
-      console.log(`\n✓ Message ${id} released from quarantine.\n`);
+      output.info(`\n✓ Message ${id} released from quarantine.\n`, {
+        messageId: id,
+        from: data.envelope.headers.from,
+        subject: data.envelope.headers.subject,
+        riskScore: data.envelope.riskScore.score,
+      });
     },
   };
 }
 
-function createQuarantineDeleteCommand(storage: PluginStorage, logger: Logger): CliCommand {
+function createQuarantineDeleteCommand(storage: PluginStorage, output: CLIOutput): CliCommand {
   return {
     name: 'mailguard:quarantine:delete',
     description: 'Permanently delete a quarantined message',
@@ -264,26 +317,35 @@ function createQuarantineDeleteCommand(storage: PluginStorage, logger: Logger): 
       const id = args.id as string;
       const force = args.force as boolean;
 
+      if (!VALID_ID_PATTERN.test(id)) {
+        output.error('\n❌ Invalid message ID format\n', { messageId: id, reason: 'invalid_format' });
+        return;
+      }
+
       const key = `quarantine:${id}`;
       const data = await storage.get<{ envelope: SanitizedEnvelope }>(key);
 
       if (!data) {
-        console.log(`\n❌ Message not found: ${id}\n`);
+        output.error(`\n❌ Message not found: ${id}\n`, { messageId: id, reason: 'not_found' });
         return;
       }
 
       if (!force) {
-        console.log(`\n⚠️  This will permanently delete the quarantined message.`);
-        console.log(`From: ${data.envelope.headers.from}`);
-        console.log(`Subject: ${data.envelope.headers.subject}`);
-        console.log(`\nUse --force to confirm deletion.\n`);
+        output.print(`\n⚠️  This will permanently delete the quarantined message.`);
+        output.print(`From: ${data.envelope.headers.from}`);
+        output.print(`Subject: ${data.envelope.headers.subject}`);
+        output.print(`\nUse --force to confirm deletion.\n`);
         return;
       }
 
       await storage.delete(key);
 
-      logger.info('Quarantined message deleted', { messageId: id });
-      console.log(`\n✓ Message ${id} permanently deleted.\n`);
+      output.info(`\n✓ Message ${id} permanently deleted.\n`, {
+        messageId: id,
+        from: data.envelope.headers.from,
+        subject: data.envelope.headers.subject,
+        action: 'permanent_delete',
+      });
     },
   };
 }
